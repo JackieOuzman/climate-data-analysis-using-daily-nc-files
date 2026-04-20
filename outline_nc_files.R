@@ -4,29 +4,29 @@
 rm(list=ls())
 
 ##Libraries and functions=================================================================
-install.packages("raster")
-install.packages("ncdf4")
-install.packages("RNetCDF")
-install.packages("data.table")
-install.packages("reshape2")
-install.packages("doBy")
-install.packages("maptools")
-install.packages("maps")
-install.packages("rasterVis")
-install.packages("lattice")
-install.packages("mapdata")
-install.packages("RColorBrewer")
-install.packages("lubridate")
-install.packages("spatial.tools")
-install.packages("mapdata")
-install.packages("RSenaps")
-install.packages("settings")
-install.packages("httr")
-install.packages("maps")
+# install.packages("raster")
+# install.packages("ncdf4")
+# install.packages("RNetCDF")
+# install.packages("data.table")
+# install.packages("reshape2")
+# install.packages("doBy")
+# install.packages("maptools")
+# install.packages("maps")
+# install.packages("rasterVis")
+# install.packages("lattice")
+# install.packages("mapdata")
+# install.packages("RColorBrewer")
+# install.packages("lubridate")
+# install.packages("spatial.tools")
+# install.packages("mapdata")
+# install.packages("RSenaps")
+# install.packages("settings")
+# install.packages("httr")
+# install.packages("maps")
 
 
 library(sp)
-library(rgdal)
+#library(rgdal)
 library(raster)
 
 library(ncdf4)
@@ -43,13 +43,13 @@ library(rasterVis)
 library(mapdata)
 
 library(lubridate)
-library(spatial.tools)
+#library(spatial.tools)
 library(mapdata)
 require(RSenaps) #error message for my R version
 library(settings)
 library(httr)
 library(sf)
-library(rgeos)
+#library(rgeos)
 library(tidyverse)
 
 #===========================
@@ -60,20 +60,19 @@ library(tidyverse)
 
 ############################################################################################################################
 ################### Start here ############################################################################################
-setwd("W:/Pastures/Gridded_seasonal_break") #jackie
-#setwd("T:/Pastures/Gridded_seasonal_break") #bonny
+#setwd("W:/Pastures/Gridded_seasonal_break") #jackie
+setwd("W:/Economic impact of weeds round 2/Climate/AEZ")#jackie
+
 GRDC_bound_mallee <- sf::st_read("SA_Vic_Mallee.shp")
 GRDC_bound_mallee_sf <- as(GRDC_bound_mallee, "Spatial") #convert to a sp object
 plot(GRDC_bound_mallee_sf)
 
-GRDC_bound_wimm <- sf::st_read("SA_Vic_Bordertown-Wimmera.shp")
-GRDC_bound_wimm_sf <- as(GRDC_bound_wimm, "Spatial") #convert to a sp object
-plot(GRDC_bound_wimm_sf)
 
-#as a function per year for rainfall
+
+#as a function per year for rainfall in GS
 #function one
-year_input <- 2000
-#function_rainfall <- function(year_input) {
+
+function_rainfall_GS <- function(year_input) {
   
   # daily_rain <- raster::brick(
   #   paste("//af-osm-05-cdc.it.csiro.au/OSM_CBR_AF_CDP_work/silo/daily_rain/",
@@ -84,15 +83,14 @@ year_input <- 2000
           year_input, ".daily_rain.nc", sep = ""),varname = "daily_rain")
   
   #crop to a fix area
-  daily_rain_crop <- raster::crop(daily_rain, GRDC_bound_wimm_sf)
+  daily_rain_crop <- raster::crop(daily_rain, GRDC_bound_mallee_sf)
   
-  #only use a few days
-  daily_rain_crop_subset_day <- subset(daily_rain_crop, 61:182) #pull out the 1stMarch to 30th June 
-  #Dates for 'seasonal break analysis'
-  #1 March - 30 June i.e. in terms of day of year= 61-182
+  #only use a few days classic GS
+  daily_rain_crop_subset_day <- subset(daily_rain_crop, 91:304) #pull out the 1st April- Oct Classic GS (nb leap yrs 92 -305)
+ 
   
   #Add the moving window
-  jan_rainfall2000_MovMean7 <- calc(daily_rain_crop_subset_day, function(x) movingFun(x, 7, mean, "to"))
+  GS_rainfall2000_MovMean7 <- calc(daily_rain_crop_subset_day, function(x) movingFun(x, 7, mean, "to"))
   
   #add in the evaporation stuff here similar to above
   
@@ -105,97 +103,112 @@ year_input <- 2000
 
 ### list of years ####
 
-jax_list <- as.character(c(2000:2005)) #xx years of data as string I want 1966 to 2025
+jax_list <- as.character(c(2002:2005)) #xx years of data as string I want 1966 to 2025
 
 
 #make loop ooh seems to be running that created a raster of rainfall for each year
 for (i in jax_list) {
-  assign(paste0("seasonal_break_rainfall", i), function_rainfall(i))
+  assign(paste0("GS_rainfall", i), function_rainfall_GS(i))
 }
-plot(seasonal_break_rainfall2000) #I can see the moving average has done something beacuse the first 6 layers are missing
-tail(seasonal_break_rainfall2000) #still 122 layer but we have some missing cells not sure what this is about??
+plot(GS_rainfall2002) #I can see the moving average has done something beacuse the first 6 layers are missing
+tail(GS_rainfall2002) #still 122 layer but we have some missing cells not sure what this is about??
 
 
 
-break_rainfall_moving_window_00_02 <- stack(seasonal_break_rainfall2000,
-                                            seasonal_break_rainfall2001, 
-                                            seasonal_break_rainfall2002)
+GSRainfall_moving_window_02_05 <- stack(GS_rainfall2002,
+                                            GS_rainfall2003, 
+                                            GS_rainfall2004,
+                                            GS_rainfall2005
+                                            )
 
 
-break_rainfall_moving_window_00_02
-head(break_rainfall_moving_window_00_02,2) #this makes sense I have 3 layers of 122 stacked together3*122=366
-break_rainfall_moving_window_00_02
+GSRainfall_moving_window_02_05
+head(GSRainfall_moving_window_02_05,2) #this makes sense I have 4 layers of 214 stacked together4*214=856
+GSRainfall_moving_window_02_05
 #means_jan_rainfall <- calc(STACK1, fun = mean, na.rm = T)
 #try this
 #x <- calc(jan_rainfall2000, function(x) movingFun(x, 3, mean))
 #y <- st1 - x
 
 ####################################################################################################
-### Evaporation
+### as a function per year for annual rainfall
 #year_input = 2000
-function_evap <- function(year_input) {
-  
-  daily_evap <- brick(
-    paste("//af-osm-05-cdc.it.csiro.au/OSM_CBR_AF_CDP_work/silo/evap_pan/",
-          year_input, ".evap_pan.nc", sep = ""),varname = "evap_pan")
-   #crop to a fix area
-  daily_evap_crop <- crop(daily_evap, GRDC_bound_wimm_sf)
-  
-  #only use a few days
-  daily_evap_crop_subset_day <- subset(daily_evap_crop,61:182) #pull out the 1stMarch to 30th June 
-  
-  #Add the moving window
-  seasonal_break_evap_MovMean7 <- calc(daily_evap_crop_subset_day, function(x) movingFun(x, 7, mean, "to"))
-  }
 
-#make loop ooh seems to be running that created a raster of rainfall for each year
-for (i in jax_list) {
-  assign(paste0("seasonal_break", i), function_evap(i))
-}
-plot(seasonal_break2000)
-head(seasonal_break2000,2)
-#######################################################################################################
-
-### Rainfall and Evaporation
-function_rainfall_evap <- function(year_input) {
-  ############################################
-  ##1. Rainfall
-  daily_rain <- brick(
-    paste("//af-osm-05-cdc.it.csiro.au/OSM_CBR_AF_CDP_work/silo/daily_rain/",
+function_rainfall_annual <- function(year_input) {
+  
+  # daily_rain <- raster::brick(
+  #   paste("//af-osm-05-cdc.it.csiro.au/OSM_CBR_AF_CDP_work/silo/daily_rain/",
+  #         year_input, ".daily_rain.nc", sep = ""),varname = "daily_rain")
+  
+  daily_rain <- raster::brick(
+    paste("I:/work/silo/daily_rain/",
           year_input, ".daily_rain.nc", sep = ""),varname = "daily_rain")
   
   #crop to a fix area
-  daily_rain_crop <- crop(daily_rain, GRDC_bound_wimm_sf)
+  daily_rain_crop <- raster::crop(daily_rain, GRDC_bound_mallee_sf)
   
-  #only use a few days
-  daily_rain_crop_subset_day <- subset(daily_rain_crop, 61:182) #pull out the 1stMarch to 30th June 
+  #only use a few days annual
+  daily_rain <- subset(daily_rain_crop, 1:335) #annual rainfall (nb leap yrs 1 -366)
   
-  #Add the moving window avearge of 7 days ? should this be sum?
-  seasonal_break_rainfall_MovMean7 <- calc(daily_rain_crop_subset_day, function(x) movingFun(x, 7, sum, "to"))
+  
+  #Add the moving window
+  annual_rainfall2000_MovMean7 <- calc(daily_rain, function(x) movingFun(x, 7, mean, "to"))
+  
+  #add in the evaporation stuff here similar to above
+  
+  #then run the test here
+  
+}
+
+### list of years ####
+
+jax_list <- as.character(c(2002:2005)) #xx years of data as string I want 1966 to 2025
+
+
+#make loop ooh seems to be running that created a raster of rainfall for each year
+for (i in jax_list) {
+  assign(paste0("rainfall_annual", i), function_rainfall_annual(i))
+}
+plot(rainfall_annual2002) #I can see the moving average has done something beacuse the first 6 layers are missing
+tail(rainfall_annual2002) #still 122 layer but we have some missing cells not sure what this is about??
+
+
+
+rainfall_annual_moving_window_02_05 <- stack(rainfall_annual2002,
+                                            rainfall_annual2003, 
+                                            rainfall_annual2004,
+                                            rainfall_annual2005
+)
+
+
+rainfall_annual_moving_window_02_05
+head(rainfall_annual_moving_window_02_05,2) #this makes sense I have 4 layers of 214 stacked together4*214=856
+rainfall_annual_moving_window_02_05
+
+
+#######################################################################################################
+
+### Annula Rainfall and GS rainfall
+function_rainfall_type <- function(year_input) {
+  ############################################
+  ##1. Rainfall annual
   
   
   ############################################
-  ##2. Evaporation stuff here similar to above
-  daily_evap <- brick(
-    paste("//af-osm-05-cdc.it.csiro.au/OSM_CBR_AF_CDP_work/silo/evap_pan/",
-          year_input, ".evap_pan.nc", sep = ""),varname = "evap_pan")
-  #crop to a fix area
-  daily_evap_crop <- crop(daily_evap, GRDC_bound_wimm_sf)
+  ##2. Rainfall GS
   
-  #only use a few days
-  daily_evap_crop_subset_day <- subset(daily_evap_crop, 61:182) #pull out the 1stMarch to 30th June
   
-  #Add the moving window
-  seasonal_break_evap_MovMean7 <- calc(daily_evap_crop_subset_day, function(x) movingFun(x, 7, sum, "to"))
+  ############################################
+  ##3. Prop of annual rainfall that is summer (we want to see a trend in more summer rain)
+  summer_rainmoving_window <- rainfall_annual_moving_window - GS_rainfall2000_MovMean7
+  proportion_summer_rain <- summer_rain / rainfall_annual_moving_window
   
-  #then run the test here Rainfall - evaporation All positive values are the ones I want
-  Rain_evap <- seasonal_break_rainfall_MovMean7 - seasonal_break_evap_MovMean7
-  return(Rain_evap)
+  return(proportion_summer_rain)
 }
 
 
 for (i in jax_list) {
-  assign(paste0("Rain_evap", i), function_rainfall_evap(i))
+  assign(paste0("prop_summer_rain", i), function_rainfall_type(i))
 }
 
 plot(Rain_evap2000)
@@ -205,7 +218,7 @@ Rain_evap2000
 #########################################################################################################################
 ####                           create a plot of how rainfall and evap  has changed over time
 #########################################################################################################################
-
+#UP to here 
 
 
 ##1. define the boundary with and use a single layer raster 
