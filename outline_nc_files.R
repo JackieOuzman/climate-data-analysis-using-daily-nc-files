@@ -61,18 +61,31 @@ library(tidyverse)
 ############################################################################################################################
 ################### Start here ############################################################################################
 #setwd("W:/Pastures/Gridded_seasonal_break") #jackie
-setwd("W:/Economic impact of weeds round 2/Climate/AEZ")#jackie
 
+setwd("W:/Economic impact of weeds round 2/Climate/AEZ")#jackie
 GRDC_bound_mallee <- sf::st_read("SA_Vic_Mallee.shp")
 GRDC_bound_mallee_sf <- as(GRDC_bound_mallee, "Spatial") #convert to a sp object
 plot(GRDC_bound_mallee_sf)
 
+# Extract CRS from one SILO nc file and reproject shapefile to match
+silo_crs <- raster::crs(raster::brick("N:/work/Climate_analysis_nc_file_jackie/silo_rain_monthly/1959.monthly_rain.nc", varname = "monthly_rain"))
+GRDC_bound_mallee_sf <- sp::spTransform(GRDC_bound_mallee_sf, silo_crs)
+
+# Confirm
+cat("Raster CRS:\n"); print(silo_crs)
+cat("Shapefile CRS after reprojection:\n"); print(raster::crs(GRDC_bound_mallee_sf))
+plot(GRDC_bound_mallee_sf, main = "Check shapefile looks correct")
+
+
+
+# Quick check of monthly_rain variable and layers
+test_brick <- raster::brick("N:/work/Climate_analysis_nc_file_jackie/silo_rain_monthly/1959.monthly_rain.nc", varname = "monthly_rain")
+cat("Number of layers:", raster::nlayers(test_brick), "\n")
+print(test_brick) # monthly_rain
 
 
 ### list of years ####
-
-#jax_list <- as.character(c(1959:2025)) #xx years of data as string I want 1966 to 2025
-jax_list <- as.character(c(2018:2025)) #xx years of data as string I want 1966 to 2025
+jax_list <- as.character(c(1959:2025)) #xx years of data as string
 
 
 #######################################################################################################
@@ -80,34 +93,29 @@ function_rainfall_type <- function(year_input) {
   
   year_input <- as.integer(year_input)
   
-  # Handle leap years
-  is_leap <- (year_input %% 4 == 0 & year_input %% 100 != 0) | (year_input %% 400 == 0)
-  days_in_year <- ifelse(is_leap, 366, 365)
-  gs_start    <- ifelse(is_leap, 92, 91)   # 1 April
-  gs_end      <- ifelse(is_leap, 305, 304) # 31 October
+  # Monthly indices 
+  gs_start <- 4   # April
+  gs_end   <- 10  # October
   
   ############################################
   ## 1. Load and crop
   
-  daily_rain <- raster::brick(
-    paste0("I:/work/silo/daily_rain/", year_input, ".daily_rain.nc"),
-    varname = "daily_rain"
+  monthly_rain <- raster::brick(
+    paste0("N:/work/Climate_analysis_nc_file_jackie/silo_rain_monthly/", year_input, ".monthly_rain.nc"),
+    varname = "monthly_rain" # 
   )
   
-  daily_rain_crop <- raster::crop(daily_rain, GRDC_bound_mallee_sf)
-  daily_rain_crop <- raster::mask(daily_rain_crop, GRDC_bound_mallee_sf)
+  monthly_rain_crop <- raster::crop(monthly_rain, GRDC_bound_mallee_sf)
+  monthly_rain_crop <- raster::mask(monthly_rain_crop, GRDC_bound_mallee_sf)
+  
+  ## 2. Annual total rainfall (all 12 months)
+  
+  annual_total <- raster::calc(raster::subset(monthly_rain_crop, 1:12), sum, na.rm = TRUE)
   
   ############################################
-  ## 2. Annual total rainfall (all days)
+  ## 3. Growing season (GS) total rainfall: April - October (months 4-10)
   
-  daily_rain_annual <- raster::subset(daily_rain_crop, 1:days_in_year)
-  annual_total <- raster::calc(daily_rain_annual, sum, na.rm = TRUE)
-  
-  ############################################
-  ## 3. Growing season (GS) total rainfall: 1 April - 31 October
-  
-  daily_rain_gs <- raster::subset(daily_rain_crop, gs_start:gs_end)
-  gs_total <- raster::calc(daily_rain_gs, sum, na.rm = TRUE)
+  gs_total <- raster::calc(raster::subset(monthly_rain_crop, gs_start:gs_end), sum, na.rm = TRUE)
   
   ############################################
   ## 4. Non-GS (summer) total and proportion
@@ -121,16 +129,18 @@ function_rainfall_type <- function(year_input) {
   proportion_summer_rain <- raster::mask(proportion_summer_rain, GRDC_bound_mallee_sf)
   
   ############################################
-  ## 5. Write to disk    Note on VM it is N on my PC it is D                         
+  ## 5. Write to disk                            
   
   out_path <- paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", year_input, ".tif")
   raster::writeRaster(proportion_summer_rain, out_path, format = "GTiff", overwrite = TRUE)
   
 }
+  
+  
+  
 
 
 
-# Loop - replaces assign()
 for (i in jax_list) {
   if (!file.exists(paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", i, ".tif"))) {
     function_rainfall_type(i)
@@ -143,18 +153,16 @@ for (i in jax_list) {
 
 
 # Then read back as a stack for analysis
+# pre_files  <- paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", 1959:1994, ".tif")
+# post_files <- paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", 1995:2025, ".tif")
+
+# Read from disk - 
 pre_files  <- paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", 1959:1994, ".tif")
 post_files <- paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", 1995:2025, ".tif")
 
-
-## extra steps
-# Define year groups
-years_pre  <- 1959:1994
-years_post <- 1995:2025
-
-# Stack pre and post rasters
-pre_stack  <- raster::stack(mget(paste0("prop_summer_rain", years_pre)))
-post_stack <- raster::stack(mget(paste0("prop_summer_rain", years_post)))
+# Stack directly from file paths
+pre_stack  <- raster::stack(pre_files)
+post_stack <- raster::stack(post_files)
 
 # Mean proportion for each period
 pre_mean  <- raster::calc(pre_stack,  mean, na.rm = TRUE)
@@ -163,13 +171,15 @@ post_mean <- raster::calc(post_stack, mean, na.rm = TRUE)
 # Difference (positive = more summer rain post 1995)
 difference <- post_mean - pre_mean
 
+
+
 # Plot all three
 par(mfrow = c(1, 3))
 
 raster::plot(pre_mean,  main = "Mean summer rain proportion\npre-1995 (1959-1994)")
 sp::plot(GRDC_bound_mallee_sf, add = TRUE, border = "black", col = NA)
 
-raster::plot(post_mean, main = "Mean summer rain proportion\npost-1995 (1995-2025)")
+raster::plot(post_mean, main = "Mean summer rain proportion\npost-1995 (1995-2018)")
 sp::plot(GRDC_bound_mallee_sf, add = TRUE, border = "black", col = NA)
 
 raster::plot(difference, main = "Difference\n(post minus pre 1995)")
@@ -177,14 +187,68 @@ sp::plot(GRDC_bound_mallee_sf, add = TRUE, border = "black", col = NA)
 
 
 
+## summing the proportion of summer rain for the 2 time point pre and post
+
+# Extract mean proportion for whole region for each year
+years_all <- 1959:2018
+
+region_means <- sapply(years_all, function(yr) {
+  r <- raster::raster(paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", yr, ".tif"))
+  raster::cellStats(r, mean, na.rm = TRUE)
+})
+
+# Build a dataframe
+df <- data.frame(
+  year   = years_all,
+  mean_prop = region_means,
+  period = ifelse(years_all < 1995, "Pre-1995 (1959-1994)", "Post-1995 (1995-2025)")
+)
+
+
+# Time series plot with vertical line at 1995
+ggplot(df, aes(x = year, y = mean_prop, colour = period)) +
+  geom_line() +
+  geom_point() +
+  geom_vline(xintercept = 1994.5, linetype = "dashed", colour = "grey40") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    x      = "Year",
+    y      = "Mean proportion of annual rainfall in non-GS (summer)",
+    colour = "Period",
+    title  = "SA-Vic Mallee: summer rainfall proportion over time"
+  ) +
+  theme_classic()
+
+# Summary bar chart
+df_summary <- df %>%
+  dplyr::group_by(period) %>%
+  dplyr::summarise(
+    mean = mean(mean_prop),
+    se   = sd(mean_prop) / sqrt(n())
+  ) %>%
+  dplyr::mutate(period = factor(period, levels = c("Pre-1995 (1959-1994)", "Post-1995 (1995-2025)")))
+
+ggplot(df_summary, aes(x = "Mallee", y = mean, fill = period)) +
+  geom_col(position = "dodge") +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se),
+                position = position_dodge(0.9), width = 0.2) +
+  scale_fill_manual(values = c("Pre-1995 (1959-1994)" = "grey70", 
+                               "Post-1995 (1995-2025)" = "grey30")) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    x     = "Region",
+    y     = "Mean proportion of annual rainfall in non-GS (summer)",
+    fill  = "Period",
+    title = "SA-Vic Mallee: summer rainfall proportion pre vs post 1995"
+  ) +
+  theme_classic()
 
 
 
-# prop_summer_rain_02_05         <- stack(prop_summer_rain2002,
-#                                         prop_summer_rain2003, 
-#                                         prop_summer_rain2004,
-#                                         prop_summer_rain2005
-# )
+
+
+
+
 
 
 plot(prop_summer_rain2002)
