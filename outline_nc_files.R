@@ -62,38 +62,39 @@ library(tidyverse)
 ################### Start here ############################################################################################
 #setwd("W:/Pastures/Gridded_seasonal_break") #jackie
 
+################### Start here ############################################################################################
 setwd("W:/Economic impact of weeds round 2/Climate/AEZ")#jackie
-GRDC_bound_mallee <- sf::st_read("SA_Vic_Mallee.shp")
-GRDC_bound_mallee_sf <- as(GRDC_bound_mallee, "Spatial") #convert to a sp object
-plot(GRDC_bound_mallee_sf)
 
-# Extract CRS from one SILO nc file and reproject shapefile to match
+# Extract CRS from one SILO nc file
 silo_crs <- raster::crs(raster::brick("N:/work/Climate_analysis_nc_file_jackie/silo_rain_monthly/1959.monthly_rain.nc", varname = "monthly_rain"))
-GRDC_bound_mallee_sf <- sp::spTransform(GRDC_bound_mallee_sf, silo_crs)
-
-# Confirm
-cat("Raster CRS:\n"); print(silo_crs)
-cat("Shapefile CRS after reprojection:\n"); print(raster::crs(GRDC_bound_mallee_sf))
-plot(GRDC_bound_mallee_sf, main = "Check shapefile looks correct")
-
-
 
 # Quick check of monthly_rain variable and layers
 test_brick <- raster::brick("N:/work/Climate_analysis_nc_file_jackie/silo_rain_monthly/1959.monthly_rain.nc", varname = "monthly_rain")
 cat("Number of layers:", raster::nlayers(test_brick), "\n")
-print(test_brick) # monthly_rain
+print(test_brick)
+
+### List of shapefiles ###
+shp_list <- c(
+  "NSW_Central", "NSW_NE_Qld_SE", "NSW_NW_Qld_SW", "NSW_Vic_Slopes",
+  "Qld_Atherton", "Qld_Burdekin", "Qld_Central",
+  "SA_Midnorth_Lower_Yorke_Eyre", "SA_Vic_Bordertown_Wimmera", "SA_Vic_Mallee",
+  "Tas_Grain", "Vic_High_Rainfall",
+  "WA_Central", "WA_Eastern", "WA_Mallee", "WA_Northern", "WA_Ord", "WA_Sandplain"
+)
+
+### List of years ####
+
+jax_list <- as.character(c(1959:2025))
 
 
-### list of years ####
-jax_list <- as.character(c(1959:2025)) #xx years of data as string
 
 
 #######################################################################################################
-function_rainfall_type <- function(year_input) {
+function_rainfall_type <- function(year_input, region_sf, region_name) {
   
   year_input <- as.integer(year_input)
   
-  # Monthly indices 
+  # Monthly indices (no leap year logic needed)
   gs_start <- 4   # April
   gs_end   <- 10  # October
   
@@ -102,12 +103,13 @@ function_rainfall_type <- function(year_input) {
   
   monthly_rain <- raster::brick(
     paste0("N:/work/Climate_analysis_nc_file_jackie/silo_rain_monthly/", year_input, ".monthly_rain.nc"),
-    varname = "monthly_rain" # 
+    varname = "monthly_rain"
   )
   
-  monthly_rain_crop <- raster::crop(monthly_rain, GRDC_bound_mallee_sf)
-  monthly_rain_crop <- raster::mask(monthly_rain_crop, GRDC_bound_mallee_sf)
+  monthly_rain_crop <- raster::crop(monthly_rain, region_sf)
+  monthly_rain_crop <- raster::mask(monthly_rain_crop, region_sf)
   
+  ############################################
   ## 2. Annual total rainfall (all 12 months)
   
   annual_total <- raster::calc(raster::subset(monthly_rain_crop, 1:12), sum, na.rm = TRUE)
@@ -126,361 +128,347 @@ function_rainfall_type <- function(year_input) {
     summer_total, annual_total,
     fun = function(s, a) ifelse(a > 0, s / a, NA)
   )
-  proportion_summer_rain <- raster::mask(proportion_summer_rain, GRDC_bound_mallee_sf)
+  proportion_summer_rain <- raster::mask(proportion_summer_rain, region_sf)
   
   ############################################
-  ## 5. Write to disk                            
+  ## 5. Write to disk
   
-  out_path <- paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", year_input, ".tif")
+  out_path <- paste0("N:/work/Climate_analysis_nc_file_jackie/", region_name, "/prop_summer_rain_", year_input, ".tif")
   raster::writeRaster(proportion_summer_rain, out_path, format = "GTiff", overwrite = TRUE)
   
 }
-  
-  
-  
 
+#######################################################################################################
+### Outer loop over regions ###
 
-
-for (i in jax_list) {
-  if (!file.exists(paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", i, ".tif"))) {
-    function_rainfall_type(i)
-    gc()
-    cat("Done:", i, "\n")
-  } else {
-    cat("Skipping (already exists):", i, "\n")
+for (region_name in shp_list) {
+  
+  cat("\n--- Processing region:", region_name, "---\n")
+  
+  # Load and reproject shapefile
+  region_bound <- sf::st_read(paste0(region_name, ".shp"))
+  region_sf    <- sp::spTransform(as(region_bound, "Spatial"), silo_crs)
+  plot(region_sf, main = region_name)
+  
+  # Create output folder if it doesn't exist
+  out_folder <- paste0("N:/work/Climate_analysis_nc_file_jackie/", region_name)
+  if (!dir.exists(out_folder)) {
+    dir.create(out_folder, recursive = TRUE)
+    cat("Created folder:", out_folder, "\n")
+  }
+  
+  # Inner loop over years
+  for (i in jax_list) {
+    out_file <- paste0(out_folder, "/prop_summer_rain_", i, ".tif")
+    if (!file.exists(out_file)) {
+      function_rainfall_type(i, region_sf, region_name)
+      gc()
+      cat("Done:", region_name, i, "\n")
+    } else {
+      cat("Skipping (already exists):", region_name, i, "\n")
+    }
   }
 }
+ 
+  
+  
+  
+  
+  
+
+
+##### up to here
 
 
 # Then read back as a stack for analysis
 # pre_files  <- paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", 1959:1994, ".tif")
 # post_files <- paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", 1995:2025, ".tif")
+# 
+# # Read from disk - 
+# pre_files  <- paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", 1959:1994, ".tif")
+# post_files <- paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", 1995:2025, ".tif")
+# 
+# # Stack directly from file paths
+# pre_stack  <- raster::stack(pre_files)
+# post_stack <- raster::stack(post_files)
+# 
+# # Mean proportion for each period
+# pre_mean  <- raster::calc(pre_stack,  mean, na.rm = TRUE)
+# post_mean <- raster::calc(post_stack, mean, na.rm = TRUE)
+# 
+# # Difference (positive = more summer rain post 1995)
+# difference <- post_mean - pre_mean
 
-# Read from disk - 
-pre_files  <- paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", 1959:1994, ".tif")
-post_files <- paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", 1995:2025, ".tif")
-
-# Stack directly from file paths
-pre_stack  <- raster::stack(pre_files)
-post_stack <- raster::stack(post_files)
-
-# Mean proportion for each period
-pre_mean  <- raster::calc(pre_stack,  mean, na.rm = TRUE)
-post_mean <- raster::calc(post_stack, mean, na.rm = TRUE)
-
-# Difference (positive = more summer rain post 1995)
-difference <- post_mean - pre_mean
 
 
-
-# Plot all three
-par(mfrow = c(1, 3))
-
-raster::plot(pre_mean,  main = "Mean summer rain proportion\npre-1995 (1959-1994)")
-sp::plot(GRDC_bound_mallee_sf, add = TRUE, border = "black", col = NA)
-
-raster::plot(post_mean, main = "Mean summer rain proportion\npost-1995 (1995-2018)")
-sp::plot(GRDC_bound_mallee_sf, add = TRUE, border = "black", col = NA)
-
-raster::plot(difference, main = "Difference\n(post minus pre 1995)")
-sp::plot(GRDC_bound_mallee_sf, add = TRUE, border = "black", col = NA)
 
 
 
 ## summing the proportion of summer rain for the 2 time point pre and post
 
-# Extract mean proportion for whole region for each year
+#######################################################################################################
+### Extract mean proportion for each region and year ###
+
 years_all <- 1959:2018
 
-region_means <- sapply(years_all, function(yr) {
-  r <- raster::raster(paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", yr, ".tif"))
-  raster::cellStats(r, mean, na.rm = TRUE)
-})
+# Loop over all regions and build one combined dataframe
+df_all <- do.call(rbind, lapply(shp_list, function(region_name) {
+  
+  region_means <- sapply(years_all, function(yr) {
+    tif_path <- paste0("N:/work/Climate_analysis_nc_file_jackie/", region_name, "/prop_summer_rain_", yr, ".tif")
+    if (file.exists(tif_path)) {
+      r <- raster::raster(tif_path)
+      raster::cellStats(r, mean, na.rm = TRUE)
+    } else {
+      NA
+    }
+  })
+  
+  data.frame(
+    year        = years_all,
+    mean_prop   = region_means,
+    region      = region_name,
+    period      = ifelse(years_all < 1995, "Pre-1995 (1959-1994)", "Post-1995 (1995-2025)")
+  )
+}))
 
-# Build a dataframe
-df <- data.frame(
-  year   = years_all,
-  mean_prop = region_means,
-  period = ifelse(years_all < 1995, "Pre-1995 (1959-1994)", "Post-1995 (1995-2025)")
-)
-
-
-# Time series plot with vertical line at 1995
-ggplot(df, aes(x = year, y = mean_prop, colour = period)) +
-  geom_line() +
-  geom_point() +
-  geom_vline(xintercept = 1994.5, linetype = "dashed", colour = "grey40") +
-  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
-  labs(
-    x      = "Year",
-    y      = "Mean proportion of annual rainfall in non-GS (summer)",
-    colour = "Period",
-    title  = "SA-Vic Mallee: summer rainfall proportion over time"
-  ) +
-  theme_classic()
-
-# Summary bar chart
-df_summary <- df %>%
-  dplyr::group_by(period) %>%
+### Summary by region and period ###
+df_summary <- df_all %>%
+  dplyr::group_by(region, period) %>%
   dplyr::summarise(
-    mean = mean(mean_prop),
-    se   = sd(mean_prop) / sqrt(n())
+    mean = mean(mean_prop, na.rm = TRUE),
+    se   = sd(mean_prop, na.rm = TRUE) / sqrt(sum(!is.na(mean_prop))),
+    .groups = "drop"
   ) %>%
-  dplyr::mutate(period = factor(period, levels = c("Pre-1995 (1959-1994)", "Post-1995 (1995-2025)")))
+  dplyr::mutate(
+    period = factor(period, levels = c("Pre-1995 (1959-1994)", "Post-1995 (1995-2025)")),
+    region = factor(region, levels = shp_list)
+  )
 
-ggplot(df_summary, aes(x = "Mallee", y = mean, fill = period)) +
+### Plot ###
+ggplot(df_summary, aes(x = region, y = mean, fill = period)) +
   geom_col(position = "dodge") +
   geom_errorbar(aes(ymin = mean - se, ymax = mean + se),
                 position = position_dodge(0.9), width = 0.2) +
-  scale_fill_manual(values = c("Pre-1995 (1959-1994)" = "grey70", 
+  scale_fill_manual(values = c("Pre-1995 (1959-1994)" = "grey70",
                                "Post-1995 (1995-2025)" = "grey30")) +
   scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
   labs(
     x     = "Region",
     y     = "Mean proportion of annual rainfall in non-GS (summer)",
     fill  = "Period",
-    title = "SA-Vic Mallee: summer rainfall proportion pre vs post 1995"
+    title = "All regions: summer rainfall proportion pre vs post 1995"
   ) +
-  theme_classic()
-
-
-
-
-
-
-
-
-
-plot(prop_summer_rain2002)
-head(prop_summer_rain2002)
-prop_summer_rain2002
-str(GRDC_bound_mallee_sf) # this is the raster
-GRDC_bound_mallee
-
-## some checks
-# Look at one year's output
-test <- prop_summer_rain2002  # swap in a year from your list
-print(test)                   # basic info: extent, resolution, CRS, value range
-raster::cellStats(test, summary)
-
-
-raster::plot(test, main = "Proportion of annual rainfall in non-GS (summer) 2000")
-sp::plot(GRDC_bound_mallee_sf, add = TRUE, border = "black", col = NA)
-
-# Load and crop/mask raw data for 2002
-raw <- raster::brick("I:/work/silo/daily_rain/2002.daily_rain.nc", varname = "daily_rain")
-raw_crop <- raster::crop(raw, GRDC_bound_mallee_sf)
-raw_crop <- raster::mask(raw_crop, GRDC_bound_mallee_sf)
-
-# Find first valid cell and its coordinates
-good_idx   <- which(raster::values(prop_summer_rain2002) > 0)[1]
-good_point <- raster::xyFromCell(prop_summer_rain2002, good_idx)
-
-# Extract all 365 daily values for that point
-pixel_values <- raster::extract(raw_crop, good_point)  # 1 row x 365 cols
-
-# Sum to match what the function does
-pixel_annual <- sum(pixel_values[1, 1:365], na.rm = TRUE)   # all days
-pixel_gs     <- sum(pixel_values[1, 91:304], na.rm = TRUE)  # 1 Apr - 31 Oct
-pixel_summer <- pixel_annual - pixel_gs
-pixel_prop   <- pixel_summer / pixel_annual
-
-cat("Manual proportion:", pixel_prop, "\n")
-cat("Raster cell value:", raster::extract(prop_summer_rain2002, good_point), "\n")
-cat("Difference:", abs(pixel_prop - raster::extract(prop_summer_rain2002, good_point)), "\n")
-
-
-
-
-
-
-#########################################################################################################################
-####                           create a plot of how rainfall and evap  has changed over time
-#########################################################################################################################
-#UP to here 
-
-
-##1. define the boundary with and use a single layer raster 
-GRDC_bound_wimm_raster <- Rain_evap2000$layer.7
-plot(GRDC_bound_wimm_raster)
-GRDC_bound_wimm_raster
-
-##2. extract points from the raster as a point shapefile
-GRDC_bound_wimm_pts2 <- rasterToPoints(GRDC_bound_wimm_raster)
-names(GRDC_bound_wimm_pts2) <- c("longitude", "latitude", "value")
-GRDC_bound_wimm_pts_df <- as.data.frame(GRDC_bound_wimm_pts2)
-GRDC_bound_wimm_pts_df <- select(GRDC_bound_wimm_pts_df, x, y)
-#check to see its worked (note that it extends further than the boundary)
-write.csv(GRDC_bound_wimm_pts_df, "test_extract.csv") #it has! This is just a file with coordinates that define our study area
-str(GRDC_bound_wimm_pts_df)
-##3. is this in the correct format?
-
-# GRDC_bound_wimm_pts_df_point <- st_as_sf(x = GRDC_bound_wimm_pts_df, 
-#                                          coords = c("x", "y"),
-#                                          crs = "+proj=longlat +datum=WGS84")
-
-GRDC_bound_wimm_pts_df_point <- SpatialPointsDataFrame(GRDC_bound_wimm_pts_df[,c("x", "y")], GRDC_bound_wimm_pts_df)
-plot(GRDC_bound_wimm_pts_df_point)
-str(GRDC_bound_wimm_pts_df_point)
-
-
-##3, now I can use this as a cookie cutter for rasters GRDC_bound_wimm_pts_df_point
-
-Rain_evap2000_extract <- raster::extract(Rain_evap2000, GRDC_bound_wimm_pts_df_point, method="simple")
-str(Rain_evap2000_extract)
-class(Rain_evap2000_extract)
-head(Rain_evap2000_extract)
-
-Rain_evap2000_extract_wide <- data.frame(GRDC_bound_wimm_pts_df_point$x, GRDC_bound_wimm_pts_df_point$y, Rain_evap2000_extract)
-head(Rain_evap2000_extract_wide)
-
-
-##### assign names for all the layers this will days not years
-
-names(Rain_evap2000_extract_wide) <- c("POINT_X", "POINT_Y", 
-                                       "61", "62", "63", "64", "65", "66","67","68","69","70",
-                                       "71", "72", "73", "74", "75", "76","77","78","79","80",
-                                       "81", "82", "83", "84", "85", "86","87","88","89","90",
-                                       "91", "92", "93", "94", "95", "96","97","98","99","100",
-                                       "101", "102", "103", "104", "105", "106","107","108","109","110",
-                                       "111", "112", "113", "114", "115", "116","117","118","119","120",
-                                       "121", "122", "123", "124", "125", "126","127","128","129","130",
-                                       "131", "132", "133", "134", "135", "136","137","138","139","140",
-                                       "141", "142", "143", "144", "145", "146","147","148","149","150",
-                                       "151", "152", "153", "154", "155", "156","157","158","159","160",
-                                       "161", "162", "163", "164", "165", "166","167","168","169","170",
-                                       "171", "172", "173", "174", "175", "176","177","178","179","180",
-                                       "181", "182")
-#Remove the clm that have no data                                       
-Rain_evap2000_extract_wide <- select(Rain_evap2000_extract_wide, -"61", -"62", -"63", -"64", -"65", -"66" )
-Rain_evap2000_extract_wide
-Rain_evap2000_extract_narrow <- gather(Rain_evap2000_extract_wide, key = "day", value = "Rainfall_evap", `68`:`182` )
-head(Rain_evap2000_extract_narrow, 11)
-Rain_evap2000_extract_narrow
-#after this I can plot the rainfall-evap for the area ie each point
-#do this as a check can be done for evap and then our new variable
-
-str(Rain_evap2000_extract_narrow)
-
-Rain_evap2000_extract_narrow$day_numb <- as.double(Rain_evap2000_extract_narrow$day)
-
-ggplot(Rain_evap2000_extract_narrow, aes(day_numb, Rainfall_evap))+
-  geom_point()+
-  geom_smooth(method = "lm", se=FALSE, color="black", aes(group=1))+ #straight line regression
-  #geom_smooth(color="black", aes(group=1))+ #smooth line
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 90, hjust=1),
-        plot.caption = element_text(hjust = 0))+
-  labs(x = "Day of year",
-       y = "Sum 7 days rainfall - sum 7 days evaporation",
-       title = "Seasonal break check for 1 year",
-caption = "This the sum 7 days rainfall - sum 7 days evaopration for each pixel in study area")
-
-
-
-
-
-Rain_evap2000_extract_wide
-#strip point x and y from df
-Rain_evap2000_extract_wide_x_y <- select(Rain_evap2000_extract_wide, "POINT_X",  "POINT_Y")
-Rain_evap2000_extract_wide_values <- select(Rain_evap2000_extract_wide,"67":"182")
-# #replace the values with 0 or 1; 0 = less than 0 and 1 is greater than 0
-# 
-Rain_evap2000_extract_wide_values <- Rain_evap2000_extract_wide_values %>% mutate_all(funs(ifelse(.<=0, 0, .))) #if its less than 0 give it value 0
-Rain_evap2000_extract_wide_values <- Rain_evap2000_extract_wide_values %>% mutate_all(funs(ifelse(.>0, 1, .))) #if its greater than 0 give it value 1
-
-
-first_occurance = names(Rain_evap2000_extract_wide_values)[apply(Rain_evap2000_extract_wide_values,1,match,x=1)]
-
-Rain_evap2000_occurance <- cbind(Rain_evap2000_extract_wide_x_y, first_occurance)
-Rain_evap2000_occurance
-
-
-ggplot(Rain_evap2000_occurance, aes(POINT_X, POINT_Y, colour = first_occurance))+
-  geom_point()
-
-
-
-######################################################################################################################################
-#### set it up as a function
-######################################################################################################################################
-#before I can run as function I need to set up a study area
-
-##1. define the boundary with and use a single layer raster 
-GRDC_bound_wimm_raster <- Rain_evap2000$layer.7
-##2. extract points from the raster as a point shapefile
-GRDC_bound_wimm_pts2 <- rasterToPoints(GRDC_bound_wimm_raster)
-names(GRDC_bound_wimm_pts2) <- c("longitude", "latitude", "value")
-GRDC_bound_wimm_pts_df <- as.data.frame(GRDC_bound_wimm_pts2)
-GRDC_bound_wimm_pts_df <- select(GRDC_bound_wimm_pts_df, x, y)
-
-##FUNCTION for occurance
-function_occurance <- function(rain_evap) {
-
-##2., now I can use this as a cookie cutter for rasters GRDC_bound_wimm_pts_df_point
-
-Rain_evap_extract <- raster::extract(rain_evap, GRDC_bound_wimm_pts_df_point, method="simple")
-
-Rain_evap_extract_wide <- data.frame(GRDC_bound_wimm_pts_df_point$x, GRDC_bound_wimm_pts_df_point$y, Rain_evap_extract)
-
-##### assign names for all the layers this will days
-names(Rain_evap_extract_wide) <- c("POINT_X", "POINT_Y", 
-                                       "61", "62", "63", "64", "65", "66","67","68","69","70",
-                                       "71", "72", "73", "74", "75", "76","77","78","79","80",
-                                       "81", "82", "83", "84", "85", "86","87","88","89","90",
-                                       "91", "92", "93", "94", "95", "96","97","98","99","100",
-                                       "101", "102", "103", "104", "105", "106","107","108","109","110",
-                                       "111", "112", "113", "114", "115", "116","117","118","119","120",
-                                       "121", "122", "123", "124", "125", "126","127","128","129","130",
-                                       "131", "132", "133", "134", "135", "136","137","138","139","140",
-                                       "141", "142", "143", "144", "145", "146","147","148","149","150",
-                                       "151", "152", "153", "154", "155", "156","157","158","159","160",
-                                       "161", "162", "163", "164", "165", "166","167","168","169","170",
-                                       "171", "172", "173", "174", "175", "176","177","178","179","180",
-                                       "181", "182")
-#Remove the clm that have no data                          
-Rain_evap_extract_wide <- select(Rain_evap_extract_wide, -"61", -"62", -"63", -"64", -"65", -"66" )
-
-#strip point x and y from df
-Rain_evap_extract_wide_x_y <- select(Rain_evap_extract_wide, "POINT_X",  "POINT_Y")
-Rain_evap_extract_wide_values <- select(Rain_evap_extract_wide,"67":"182")
-# #replace the values with 0 or 1; 0 = less than 0 and 1 is greater than 0
-# 
-Rain_evap_extract_wide_values <- Rain_evap_extract_wide_values %>% mutate_all(funs(ifelse(.<=0, 0, .))) #if its less than 0 give it value 0
-Rain_evap_extract_wide_values <- Rain_evap_extract_wide_values %>% mutate_all(funs(ifelse(.>0, 1, .))) #if its greater than 0 give it value 1
-
-first_occurance = names(Rain_evap_extract_wide_values)[apply(Rain_evap_extract_wide_values,1,match,x=1)]
-
-Rain_evap_occurance <- cbind(Rain_evap_extract_wide_x_y, first_occurance)
-Rain_evap_occurance
-}
-
-raster_list <- c(Rain_evap2000, Rain_evap2001, Rain_evap2002)
-
-for (i in raster_list) {
-  assign(paste0("Rain_evap_occurance", i), function_occurance(i))
-}
-
-
-
-#### Will I get error with leap year?
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+##### need to group some aez and remove some all together
+
+#################################################################################
+## DO above agian but now with a different subset of AEZ and with regions options
+### Define grouped region list (drop Qld_Atherton, Qld_Burdekin, WA_Ord) ###
+
+region_groups <- data.frame(
+  region = c(
+    # Northern
+    "Qld_Central", "NSW_NE_Qld_SE", "NSW_NW_Qld_SW", "NSW_Vic_Slopes", "NSW_Central",
+    # Southern
+    "SA_Midnorth_Lower_Yorke_Eyre", "SA_Vic_Mallee", "SA_Vic_Bordertown_Wimmera", "Tas_Grain", "Vic_High_Rainfall",
+    # Western
+    "WA_Central", "WA_Eastern", "WA_Northern", "WA_Sandplain", "WA_Mallee"
+  ),
+  zone = c(
+    rep("Northern", 5),
+    rep("Southern", 5),
+    rep("Western", 5)
+  )
+)
+
+# Nice x-axis labels (shorter than the shapefile names)
+region_labels <- c(
+  "Qld_Central"                  = "Qld Central",
+  "NSW_NE_Qld_SE"                = "NSW NE/Qld SE",
+  "NSW_NW_Qld_SW"                = "NSW NW/Qld SW",
+  "NSW_Vic_Slopes"               = "NSW Vic Slopes",
+  "NSW_Central"                  = "NSW Central",
+  "SA_Midnorth_Lower_Yorke_Eyre" = "SA Midnorth-LYE",
+  "SA_Vic_Mallee"                = "SA Vic Mallee",
+  "SA_Vic_Bordertown_Wimmera"    = "SA Vic Bordertown-Wimmera",
+  "Tas_Grain"                    = "Tas Grain",
+  "Vic_High_Rainfall"            = "Vic High Rainfall",
+  "WA_Central"                   = "WA Central",
+  "WA_Eastern"                   = "WA Eastern",
+  "WA_Northern"                  = "WA Northern",
+  "WA_Sandplain"                 = "WA Sandplain",
+  "WA_Mallee"                    = "WA Mallee"
+)
+
+#######################################################################################################
+### Extract mean proportion - filtered to grouped regions only ###
+
+years_all <- 1959:2018
+
+df_all <- do.call(rbind, lapply(region_groups$region, function(region_name) {
+  
+  region_means <- sapply(years_all, function(yr) {
+    tif_path <- paste0("N:/work/Climate_analysis_nc_file_jackie/", region_name, "/prop_summer_rain_", yr, ".tif")
+    if (file.exists(tif_path)) {
+      r <- raster::raster(tif_path)
+      raster::cellStats(r, mean, na.rm = TRUE)
+    } else {
+      NA
+    }
+  })
+  
+  data.frame(
+    year      = years_all,
+    mean_prop = region_means,
+    region    = region_name,
+    period    = ifelse(years_all < 1995, "Pre-1995 (1959-1994)", "Post-1995 (1995-2025)")
+  )
+}))
+
+# Join zone grouping
+df_all <- df_all %>%
+  dplyr::left_join(region_groups, by = "region")
+
+### Summary by region, zone and period ###
+df_summary <- df_all %>%
+  dplyr::group_by(zone, region, period) %>%
+  dplyr::summarise(
+    mean = mean(mean_prop, na.rm = TRUE),
+    se   = sd(mean_prop, na.rm = TRUE) / sqrt(sum(!is.na(mean_prop))),
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    period = factor(period, levels = c("Pre-1995 (1959-1994)", "Post-1995 (1995-2025)")),
+    region = factor(region, levels = region_groups$region),
+    zone   = factor(zone,   levels = c("Northern", "Southern", "Western"))
+  )
+
+### Zone fill colours (paired light/dark per zone) ###
+zone_period_colours <- c(
+  "Northern_Pre"  = "#a8d1f0",  # light blue
+  "Northern_Post" = "#1a6fad",  # dark blue
+  "Southern_Post" = "#2d8a4e",  # dark green
+  "Southern_Pre"  = "#a8d9b8",  # light green
+  "Western_Pre"   = "#f5c18a",  # light orange
+  "Western_Post"  = "#c45e0a"   # dark orange
+)
+
+df_summary <- df_summary %>%
+  dplyr::mutate(
+    fill_group = factor(
+      paste0(zone, "_", ifelse(period == "Pre-1995 (1959-1994)", "Pre", "Post")),
+      levels = c(
+        "Northern_Pre", "Northern_Post",
+        "Southern_Pre", "Southern_Post",
+        "Western_Pre",  "Western_Post"
+      )
+    )
+  )
+### Plot ###
+ggplot(df_summary, aes(x = region, y = mean, fill = fill_group)) +
+  geom_col(position = "dodge") +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se),
+                position = position_dodge(0.9), width = 0.2) +
+  # Zone divider lines
+  geom_vline(xintercept = c(5.5, 10.5), linetype = "dashed", colour = "grey50", linewidth = 0.6) +
+  # Zone labels across the top
+  annotate("text", x = 3,    y = Inf, label = "Northern", vjust = 1.5, fontface = "bold", size = 3.5) +
+  annotate("text", x = 8,    y = Inf, label = "Southern", vjust = 1.5, fontface = "bold", size = 3.5) +
+  annotate("text", x = 12.5, y = Inf, label = "Western",  vjust = 1.5, fontface = "bold", size = 3.5) +
+  scale_fill_manual(
+    values = zone_period_colours,
+    labels = c(
+      "Northern_Pre"  = "Northern Pre-1995",
+      "Northern_Post" = "Northern Post-1995",
+      "Southern_Pre"  = "Southern Pre-1995",
+      "Southern_Post" = "Southern Post-1995",
+      "Western_Pre"   = "Western Pre-1995",
+      "Western_Post"  = "Western Post-1995"
+    ),
+    name = "Zone / Period"
+  ) +
+  scale_x_discrete(labels = region_labels) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    x     = "Region",
+    y     = "Mean proportion of annual rainfall in non-GS (summer)",
+    title = "Summer rainfall proportion pre vs post 1995 by zone"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x     = element_text(angle = 45, hjust = 1, size = 8),
+    legend.position = "right",
+    plot.title      = element_text(face = "bold")
+  )
+
+ggsave(
+  filename = "N:/work/Climate_analysis_nc_file_jackie/summer_rain_proportion_pre_post_1995.png",
+  width  = 14,
+  height = 7,
+  dpi    = 300,
+  units  = "in"
+)
+
+#################################################################################
+## different options 
+### Summarise to zone level ###
+df_zone_summary <- df_all %>%
+  dplyr::group_by(zone, period, year) %>%
+  dplyr::summarise(mean_prop = mean(mean_prop, na.rm = TRUE), .groups = "drop") %>%
+  dplyr::group_by(zone, period) %>%
+  dplyr::summarise(
+    mean = mean(mean_prop, na.rm = TRUE),
+    se   = sd(mean_prop, na.rm = TRUE) / sqrt(sum(!is.na(mean_prop))),
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    period = factor(period, levels = c("Pre-1995 (1959-1994)", "Post-1995 (1995-2025)")),
+    zone   = factor(zone,   levels = c("Northern", "Southern", "Western")),
+    fill_group = factor(
+      paste0(zone, "_", ifelse(period == "Pre-1995 (1959-1994)", "Pre", "Post")),
+      levels = c("Northern_Pre", "Northern_Post",
+                 "Southern_Pre", "Southern_Post",
+                 "Western_Pre",  "Western_Post")
+    )
+  )
+
+### Plot ###
+
+
+
+ggplot(df_zone_summary, aes(x = zone, y = mean, fill = period, group = period)) +
+  geom_col(position = "dodge") +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se),
+                position = position_dodge(0.9), width = 0.2) +
+  scale_fill_manual(
+    values = c("Pre-1995 (1959-1994)" = "grey70",
+               "Post-1995 (1995-2025)" = "grey30"),
+    name = "Period"
+  ) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    x     = "",
+    y     = "",
+    title = "Mean proportion of annual rainfall that falls in summer."
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x     = element_text(size = 11),
+    legend.position = "bottom",
+    plot.title      = element_text(face = "bold")
+  ) 
+ 
+
+ggsave(
+  filename = "N:/work/Climate_analysis_nc_file_jackie/summer_rain_proportion_regions.png",
+  width  = 8,
+  height = 6,
+  dpi    = 300,
+  units  = "in"
+)
 
 
 
