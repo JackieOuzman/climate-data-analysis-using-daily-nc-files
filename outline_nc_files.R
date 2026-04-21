@@ -71,14 +71,14 @@ plot(GRDC_bound_mallee_sf)
 
 ### list of years ####
 
-jax_list <- as.character(c(2002:2005)) #xx years of data as string I want 1966 to 2025
-
+#jax_list <- as.character(c(1959:2025)) #xx years of data as string I want 1966 to 2025
+jax_list <- as.character(c(2018:2025)) #xx years of data as string I want 1966 to 2025
 
 
 #######################################################################################################
 function_rainfall_type <- function(year_input) {
   
-  year_input <- as.integer(year_input)  # Add this line
+  year_input <- as.integer(year_input)
   
   # Handle leap years
   is_leap <- (year_input %% 4 == 0 & year_input %% 100 != 0) | (year_input %% 400 == 0)
@@ -95,7 +95,7 @@ function_rainfall_type <- function(year_input) {
   )
   
   daily_rain_crop <- raster::crop(daily_rain, GRDC_bound_mallee_sf)
-  daily_rain_crop <- raster::mask(daily_rain_crop, GRDC_bound_mallee_sf)  # add this line
+  daily_rain_crop <- raster::mask(daily_rain_crop, GRDC_bound_mallee_sf)
   
   ############################################
   ## 2. Annual total rainfall (all days)
@@ -104,7 +104,7 @@ function_rainfall_type <- function(year_input) {
   annual_total <- raster::calc(daily_rain_annual, sum, na.rm = TRUE)
   
   ############################################
-  ## 3. Growing season (GS) total rainfall: 1 April – 31 October
+  ## 3. Growing season (GS) total rainfall: 1 April - 31 October
   
   daily_rain_gs <- raster::subset(daily_rain_crop, gs_start:gs_end)
   gs_total <- raster::calc(daily_rain_gs, sum, na.rm = TRUE)
@@ -114,25 +114,77 @@ function_rainfall_type <- function(year_input) {
   
   summer_total <- annual_total - gs_total
   
-  # Avoid division by zero in pixels with zero annual rain
   proportion_summer_rain <- raster::overlay(
     summer_total, annual_total,
     fun = function(s, a) ifelse(a > 0, s / a, NA)
   )
   proportion_summer_rain <- raster::mask(proportion_summer_rain, GRDC_bound_mallee_sf)
-  return(proportion_summer_rain)
+  
+  ############################################
+  ## 5. Write to disk    Note on VM it is N on my PC it is D                         
+  
+  out_path <- paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", year_input, ".tif")
+  raster::writeRaster(proportion_summer_rain, out_path, format = "GTiff", overwrite = TRUE)
+  
 }
 
+
+
+# Loop - replaces assign()
 for (i in jax_list) {
-  assign(paste0("prop_summer_rain", i), function_rainfall_type(i))
+  if (!file.exists(paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", i, ".tif"))) {
+    function_rainfall_type(i)
+    gc()
+    cat("Done:", i, "\n")
+  } else {
+    cat("Skipping (already exists):", i, "\n")
+  }
 }
 
 
-prop_summer_rain_02_05         <- stack(prop_summer_rain2002,
-                                        prop_summer_rain2003, 
-                                        prop_summer_rain2004,
-                                        prop_summer_rain2005
-)
+# Then read back as a stack for analysis
+pre_files  <- paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", 1959:1994, ".tif")
+post_files <- paste0("N:/work/Climate_analysis_nc_file_jackie/GRDC_bound_mallee/prop_summer_rain_", 1995:2025, ".tif")
+
+
+## extra steps
+# Define year groups
+years_pre  <- 1959:1994
+years_post <- 1995:2025
+
+# Stack pre and post rasters
+pre_stack  <- raster::stack(mget(paste0("prop_summer_rain", years_pre)))
+post_stack <- raster::stack(mget(paste0("prop_summer_rain", years_post)))
+
+# Mean proportion for each period
+pre_mean  <- raster::calc(pre_stack,  mean, na.rm = TRUE)
+post_mean <- raster::calc(post_stack, mean, na.rm = TRUE)
+
+# Difference (positive = more summer rain post 1995)
+difference <- post_mean - pre_mean
+
+# Plot all three
+par(mfrow = c(1, 3))
+
+raster::plot(pre_mean,  main = "Mean summer rain proportion\npre-1995 (1959-1994)")
+sp::plot(GRDC_bound_mallee_sf, add = TRUE, border = "black", col = NA)
+
+raster::plot(post_mean, main = "Mean summer rain proportion\npost-1995 (1995-2025)")
+sp::plot(GRDC_bound_mallee_sf, add = TRUE, border = "black", col = NA)
+
+raster::plot(difference, main = "Difference\n(post minus pre 1995)")
+sp::plot(GRDC_bound_mallee_sf, add = TRUE, border = "black", col = NA)
+
+
+
+
+
+
+# prop_summer_rain_02_05         <- stack(prop_summer_rain2002,
+#                                         prop_summer_rain2003, 
+#                                         prop_summer_rain2004,
+#                                         prop_summer_rain2005
+# )
 
 
 plot(prop_summer_rain2002)
