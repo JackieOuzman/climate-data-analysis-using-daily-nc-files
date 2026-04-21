@@ -34,8 +34,8 @@ library(RNetCDF)
 library(RColorBrewer)
 library(data.table)
 library(reshape2)
-library(doBy)
-library(maptools)
+#library(doBy)
+#library(maptools)
 library(maps)
 library(lattice)
 library(latticeExtra)
@@ -69,151 +69,114 @@ plot(GRDC_bound_mallee_sf)
 
 
 
-#as a function per year for rainfall in GS
-#function one
-
-function_rainfall_GS <- function(year_input) {
-  
-  # daily_rain <- raster::brick(
-  #   paste("//af-osm-05-cdc.it.csiro.au/OSM_CBR_AF_CDP_work/silo/daily_rain/",
-  #         year_input, ".daily_rain.nc", sep = ""),varname = "daily_rain")
-  
-  daily_rain <- raster::brick(
-    paste("I:/work/silo/daily_rain/",
-          year_input, ".daily_rain.nc", sep = ""),varname = "daily_rain")
-  
-  #crop to a fix area
-  daily_rain_crop <- raster::crop(daily_rain, GRDC_bound_mallee_sf)
-  
-  #only use a few days classic GS
-  daily_rain_crop_subset_day <- subset(daily_rain_crop, 91:304) #pull out the 1st April- Oct Classic GS (nb leap yrs 92 -305)
- 
-  
-  #Add the moving window
-  GS_rainfall2000_MovMean7 <- calc(daily_rain_crop_subset_day, function(x) movingFun(x, 7, mean, "to"))
-  
-  #add in the evaporation stuff here similar to above
-  
-  #then run the test here
-  
-}
-
-
-
-
 ### list of years ####
 
 jax_list <- as.character(c(2002:2005)) #xx years of data as string I want 1966 to 2025
 
-
-#make loop ooh seems to be running that created a raster of rainfall for each year
-for (i in jax_list) {
-  assign(paste0("GS_rainfall", i), function_rainfall_GS(i))
-}
-plot(GS_rainfall2002) #I can see the moving average has done something beacuse the first 6 layers are missing
-tail(GS_rainfall2002) #still 122 layer but we have some missing cells not sure what this is about??
-
-
-
-GSRainfall_moving_window_02_05 <- stack(GS_rainfall2002,
-                                            GS_rainfall2003, 
-                                            GS_rainfall2004,
-                                            GS_rainfall2005
-                                            )
-
-
-GSRainfall_moving_window_02_05
-head(GSRainfall_moving_window_02_05,2) #this makes sense I have 4 layers of 214 stacked together4*214=856
-GSRainfall_moving_window_02_05
-#means_jan_rainfall <- calc(STACK1, fun = mean, na.rm = T)
-#try this
-#x <- calc(jan_rainfall2000, function(x) movingFun(x, 3, mean))
-#y <- st1 - x
-
-####################################################################################################
-### as a function per year for annual rainfall
-#year_input = 2000
-
-function_rainfall_annual <- function(year_input) {
-  
-  # daily_rain <- raster::brick(
-  #   paste("//af-osm-05-cdc.it.csiro.au/OSM_CBR_AF_CDP_work/silo/daily_rain/",
-  #         year_input, ".daily_rain.nc", sep = ""),varname = "daily_rain")
-  
-  daily_rain <- raster::brick(
-    paste("I:/work/silo/daily_rain/",
-          year_input, ".daily_rain.nc", sep = ""),varname = "daily_rain")
-  
-  #crop to a fix area
-  daily_rain_crop <- raster::crop(daily_rain, GRDC_bound_mallee_sf)
-  
-  #only use a few days annual
-  daily_rain <- subset(daily_rain_crop, 1:335) #annual rainfall (nb leap yrs 1 -366)
-  
-  
-  #Add the moving window
-  annual_rainfall2000_MovMean7 <- calc(daily_rain, function(x) movingFun(x, 7, mean, "to"))
-  
-  #add in the evaporation stuff here similar to above
-  
-  #then run the test here
-  
-}
-
-### list of years ####
-
-jax_list <- as.character(c(2002:2005)) #xx years of data as string I want 1966 to 2025
-
-
-#make loop ooh seems to be running that created a raster of rainfall for each year
-for (i in jax_list) {
-  assign(paste0("rainfall_annual", i), function_rainfall_annual(i))
-}
-plot(rainfall_annual2002) #I can see the moving average has done something beacuse the first 6 layers are missing
-tail(rainfall_annual2002) #still 122 layer but we have some missing cells not sure what this is about??
-
-
-
-rainfall_annual_moving_window_02_05 <- stack(rainfall_annual2002,
-                                            rainfall_annual2003, 
-                                            rainfall_annual2004,
-                                            rainfall_annual2005
-)
-
-
-rainfall_annual_moving_window_02_05
-head(rainfall_annual_moving_window_02_05,2) #this makes sense I have 4 layers of 214 stacked together4*214=856
-rainfall_annual_moving_window_02_05
 
 
 #######################################################################################################
-
-### Annula Rainfall and GS rainfall
 function_rainfall_type <- function(year_input) {
+  
+  year_input <- as.integer(year_input)  # Add this line
+  
+  # Handle leap years
+  is_leap <- (year_input %% 4 == 0 & year_input %% 100 != 0) | (year_input %% 400 == 0)
+  days_in_year <- ifelse(is_leap, 366, 365)
+  gs_start    <- ifelse(is_leap, 92, 91)   # 1 April
+  gs_end      <- ifelse(is_leap, 305, 304) # 31 October
+  
   ############################################
-  ##1. Rainfall annual
+  ## 1. Load and crop
   
+  daily_rain <- raster::brick(
+    paste0("I:/work/silo/daily_rain/", year_input, ".daily_rain.nc"),
+    varname = "daily_rain"
+  )
+  
+  daily_rain_crop <- raster::crop(daily_rain, GRDC_bound_mallee_sf)
+  daily_rain_crop <- raster::mask(daily_rain_crop, GRDC_bound_mallee_sf)  # add this line
   
   ############################################
-  ##2. Rainfall GS
+  ## 2. Annual total rainfall (all days)
   
+  daily_rain_annual <- raster::subset(daily_rain_crop, 1:days_in_year)
+  annual_total <- raster::calc(daily_rain_annual, sum, na.rm = TRUE)
   
   ############################################
-  ##3. Prop of annual rainfall that is summer (we want to see a trend in more summer rain)
-  summer_rainmoving_window <- rainfall_annual_moving_window - GS_rainfall2000_MovMean7
-  proportion_summer_rain <- summer_rain / rainfall_annual_moving_window
+  ## 3. Growing season (GS) total rainfall: 1 April – 31 October
   
+  daily_rain_gs <- raster::subset(daily_rain_crop, gs_start:gs_end)
+  gs_total <- raster::calc(daily_rain_gs, sum, na.rm = TRUE)
+  
+  ############################################
+  ## 4. Non-GS (summer) total and proportion
+  
+  summer_total <- annual_total - gs_total
+  
+  # Avoid division by zero in pixels with zero annual rain
+  proportion_summer_rain <- raster::overlay(
+    summer_total, annual_total,
+    fun = function(s, a) ifelse(a > 0, s / a, NA)
+  )
+  proportion_summer_rain <- raster::mask(proportion_summer_rain, GRDC_bound_mallee_sf)
   return(proportion_summer_rain)
 }
-
 
 for (i in jax_list) {
   assign(paste0("prop_summer_rain", i), function_rainfall_type(i))
 }
 
-plot(Rain_evap2000)
-head(Rain_evap2000)
-Rain_evap2000
+
+prop_summer_rain_02_05         <- stack(prop_summer_rain2002,
+                                        prop_summer_rain2003, 
+                                        prop_summer_rain2004,
+                                        prop_summer_rain2005
+)
+
+
+plot(prop_summer_rain2002)
+head(prop_summer_rain2002)
+prop_summer_rain2002
+str(GRDC_bound_mallee_sf) # this is the raster
+GRDC_bound_mallee
+
+## some checks
+# Look at one year's output
+test <- prop_summer_rain2002  # swap in a year from your list
+print(test)                   # basic info: extent, resolution, CRS, value range
+raster::cellStats(test, summary)
+
+
+raster::plot(test, main = "Proportion of annual rainfall in non-GS (summer) 2000")
+sp::plot(GRDC_bound_mallee_sf, add = TRUE, border = "black", col = NA)
+
+# Load and crop/mask raw data for 2002
+raw <- raster::brick("I:/work/silo/daily_rain/2002.daily_rain.nc", varname = "daily_rain")
+raw_crop <- raster::crop(raw, GRDC_bound_mallee_sf)
+raw_crop <- raster::mask(raw_crop, GRDC_bound_mallee_sf)
+
+# Find first valid cell and its coordinates
+good_idx   <- which(raster::values(prop_summer_rain2002) > 0)[1]
+good_point <- raster::xyFromCell(prop_summer_rain2002, good_idx)
+
+# Extract all 365 daily values for that point
+pixel_values <- raster::extract(raw_crop, good_point)  # 1 row x 365 cols
+
+# Sum to match what the function does
+pixel_annual <- sum(pixel_values[1, 1:365], na.rm = TRUE)   # all days
+pixel_gs     <- sum(pixel_values[1, 91:304], na.rm = TRUE)  # 1 Apr - 31 Oct
+pixel_summer <- pixel_annual - pixel_gs
+pixel_prop   <- pixel_summer / pixel_annual
+
+cat("Manual proportion:", pixel_prop, "\n")
+cat("Raster cell value:", raster::extract(prop_summer_rain2002, good_point), "\n")
+cat("Difference:", abs(pixel_prop - raster::extract(prop_summer_rain2002, good_point)), "\n")
+
+
+
+
+
 
 #########################################################################################################################
 ####                           create a plot of how rainfall and evap  has changed over time
