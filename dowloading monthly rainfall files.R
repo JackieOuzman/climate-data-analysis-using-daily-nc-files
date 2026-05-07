@@ -3,8 +3,7 @@
 # ============================================================
 
 # Set your destination folder (change this to wherever you want the files)
-dest_dir <- "N:/work/Climate_analysis_nc_file_jackie/silo_rain_monthly"   # Windows
-# dest_dir <- "~/silo_rain"                            # Mac/Linux
+dest_dir <- "N:/work/Climate_analysis_nc_file_jackie/silo_rain_monthly"   # this was run on VM, my computer it is D drive
 
 # Create the folder if it doesn't exist
 if (!dir.exists(dest_dir)) dir.create(dest_dir, recursive = TRUE)
